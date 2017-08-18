@@ -15,7 +15,7 @@ For use with Matlab App
 
 3) Output file is stored in the same location as input mat file.
 
-For use with inline simulation 
+For use with commandline parameters
 - 
 First export simulation data using signal logging (check link: https://www.mathworks.com/help/simulink/ug/exporting-signal-data-using-signal-logging.html).  
 
