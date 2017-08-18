@@ -1,6 +1,6 @@
 # ExportMDF
 Converts Matlab/Simulink data saved in workspace or 'MAT' file to DAT format (MDF 3.0) which can be read by ETAS MDA(INCA) or CANape tool.
-Currently, script works using Matlab libraries version 8.2 (R2013) or higher. 
+Currently, script works using Matlab libraries version 8.2 (R2013b) or higher. 
 
 # Usage
 For use with Matlab App 
