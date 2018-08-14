@@ -20,6 +20,7 @@ fwrite(fid, repmat(char(0),1,200000), 'char');
 %%  pass the table data
 % load('table_data.mat');
 varNames = dataTable.Properties.VariableNames;
+varUnits = getTableUnits(dataTable);
 numChannels = length(varNames);
 numSamples = height(dataTable);
 rateSample = dataTable.time(2) - dataTable.time(1);
@@ -51,7 +52,7 @@ writeCGBlock(fid, linkCG, linkCN, numChannels, numSamples);
 
 %% write CC/CN blocks
 for vars = 1 : numChannels
-   writeCCBlock(fid, linkCC);
+   writeCCBlock(fid, linkCC, varUnits{vars});
    nextCN = linkCN+blocksize_cn+padd_cn;
    writeCNBlock(fid, linkCN, linkCC, nextCN, varNames{vars}, vars, rateSample, vars == numChannels);
    
@@ -179,7 +180,10 @@ fwrite(fid,0,'uint16');     % additional byte offset
 end
 
 %% CC block def
-function writeCCBlock(fid, offset)
+function writeCCBlock(fid, offset, units)
+% units modification - limit to 20 with trailing zeros
+units = units(1:min(19,length(units)));
+units = [units repmat(char(0),1,20-length(units))];
 
 blocksize = 62;
 
@@ -189,7 +193,7 @@ fwrite(fid,blocksize,'uint16');    %block size
 fwrite(fid,0,'uint16');    % value range valid
 fwrite(fid,0,'double');    % min signal value
 fwrite(fid,0,'double');    % max signal value
-fwrite(fid,repmat(char(0),1,20),'char');    %units of the signal - empty
+fwrite(fid,units,'char');    % units of the signal
 fwrite(fid,0,'uint16');    % conversion type - linear
 fwrite(fid,2,'uint16');    % number of parameters
 fwrite(fid,0,'double');    % P1
@@ -205,4 +209,16 @@ fseek(fid,offset,'bof');
 % end
 dataTableRow = reshape(dataTable{:,:}', 1, []);
 fwrite(fid,dataTableRow, 'single');
+end
+
+%% DataTable units
+function units = getTableUnits(dataTable)
+units = dataTable.Properties.VariableUnits;
+
+% if no units are set to either of the column
+if isempty(units)
+    % set empty units to first column, it forces empty units to all columns
+    dataTable.Properties.VariableUnits{1} = '';
+    units = dataTable.Properties.VariableUnits;
+end
 end
