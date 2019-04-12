@@ -1,7 +1,21 @@
 function mat2dat(varargin)
-% Uses variables stored in timeseries format and
-% converts to -dat file to read it in MDA
-% saves the file name as *_mda.dat in the same location 
+% The script is invoked two ways 
+% 1: with no arguments to the script, in which case, the user selects the
+% one or more mat files to convert to dat file format.  The output is the
+% same name as matfile but appended with "_expMDF.dat"
+% 
+% 2: inline with other scripts or model where the syntax below is followed. 
+%       usage:  MAT2DAT(logsout, 'test_data.dat') 
+%       params: 
+%           logsout:  Simulink.SimulationData.Dataset type data stored via simulation output
+%           'test_data.dat' :  filename to convert data to dat
+%       returns: 
+%           'test_data.dat':  data converted to MDF format
+%       simulation model call; assume logsout variable in the workspace
+
+% Author: Rahul Rajampeta
+% Updated: April 11, 2019
+
 disp('  ');
 %% check matlab version : currently supports 8.2 and higher
 if verLessThan('matlab', '8.2')
@@ -73,9 +87,9 @@ end
 if strcmpi(FileName(end-2:end), 'dat')
     fileoutname = FileName;
 else
-    fileoutname = strcat(FileName(1:end-4),'_expMDA.dat');
+    fileoutname = strcat(FileName(1:end-4),'_expMDF.dat');
 end
-disp(['Writing data to dat file -- "' fileoutname '"']) ;
+disp(' ');disp(['Writing data to dat file -- "' fileoutname '"']) ;
 fileoutname = strcat(PathName,fileoutname);
 expMDF(dataTable, fileoutname);
 disp('   ');
@@ -127,42 +141,141 @@ end
 end
 
 %% converts Simulation Dataset to structure-timeseries
-function uTimeSeries = classSimDataset(dataStream)
-uTimeSeries = struct;
-nuTimeSeries = struct;
+function allSignals = classSimDataset(dataStream)
+% todo check if data is fixed step or variable step
+% todo check isnan or isinf
+% for fixed or variable step, timestamp should be the same
+
+% 1: extract all the signals from logsout
+allSignals = struct;
 for var = 1:numElements(dataStream)
     dataSignal = dataStream.getElement(var);
-    if (isUniform(dataSignal.Values.TimeInfo)) && ...
-        (dataSignal.Values.TimeInfo.Length > 2)
-        eval(strcat('uTimeSeries.',dataSignal.Name, '= dataSignal.Values;'));
-        eval('uts= dataSignal.Values;');
-    else
-        eval(strcat('nuTimeSeries.',dataSignal.Name, '= dataSignal.Values;'));
-    end
-end
-if isempty(uts)
-    error('No Uniform TimeVector Found: Try logging atleast one signal without the enable/tigger/function subsystem');
-end
-fnames = fieldnames(nuTimeSeries); 
-for var = 1:length(fnames)
-    varb = eval(strcat('nuTimeSeries.',fnames{var}));
-    if varb.TimeInfo.Length == 1  % constant ports 
-        tempTS = timeseries;
-        tempTS.Name = varb.Name;
-        tempTS.Time = uts.Time;
-        tempTS.Data =  ones(length(uts.Time),1) .* varb.Data;
-    else    % all other data formats
-        if isfloat(varb.Data)
-            Val = interp1( varb.Time, varb.Data, uts.Time, 'linear');
-        else
-            Val = floor(interp1( varb.Time, single(varb.Data), uts.Time, 'linear'));
+    % check if signal value type is timeseries (i.e. signals or mux) 
+    if isobject(dataSignal.Values)
+        allSignals = UpdateSignalsList(allSignals, dataSignal);
+    
+    elseif isstruct(dataSignal.Values)     % it must be a bus type signal
+        fnames = fieldnames(dataSignal.Values);
+        tempSignal = dataSignal;
+        for i=1:length(fnames)
+            eval(['tempSignal.Values = dataSignal.Values.' fnames{i} ';']);
+            tempSignal.Name = [dataSignal.Name '_' tempSignal.Values.Name];
+            tempSignal.Values.Name = tempSignal.Name;
+            allSignals = UpdateSignalsList(allSignals, tempSignal);            
         end
-        Val(isnan(Val))=0.0;
-        tempTS = timeseries;
-        tempTS.Name = varb.Name;
-        tempTS.Time = uts.Time;
-        tempTS.Data = Val;
+            
+    else % unknown type
+        % todo
     end
-    eval(strcat('uTimeSeries.',tempTS.Name, '= tempTS;'));
+        
+end
+
+% 2: get the common timestamp for all the signals
+commonTime = [];
+signalNames = fieldnames(allSignals);
+for i=1:length(signalNames)
+    tempTS = eval(['allSignals.' signalNames{i}]);
+    if tempTS.TimeInfo.Length > length(commonTime)
+        commonTime = tempTS.Time;
+    end
+end
+% first element the common timestamp is more than 2s, then set warning
+if isempty(commonTime(1) > 2) 
+    warning('No Uniform TimeVector Found: Try logging atleast one signal without the enable/tigger/function subsystem');
+end
+
+% 3: fix the non-uniform signals
+helptext = true;
+promptinput = true;
+for i=1:length(signalNames)
+    tempTS = eval(['allSignals.' signalNames{i}]);
+    if (tempTS.TimeInfo.Length ~= length(commonTime))
+        % display one time help text
+        if (helptext)
+            helptext = false;
+            fprintf('\n');
+            disp('---------------------------------------------------------------------------');
+            fprintf('Some signals are enable/function/trigger subsystem signals and have missing values,\nchoose one of the option below for respective signals - \n');
+            fprintf('\t "z" - fill with zeros (default)\n')
+            fprintf('\t "h" - hold last sample value \n')
+            fprintf('\t "i" - interpolate in between\n')
+            fprintf('\t "za" - fill with zeros and use this option for rest of the signals\n')
+            fprintf('\t "ha" - hold last sample values and use this option for rest of the signals\n')
+            fprintf('\t "ia" - interpolate in between and use this option for rest of the signals\n')
+            disp('---------------------------------------------------------------------------');
+            fprintf('\n');
+        end
+        
+        % prompt for fill type, default zero
+        if (promptinput)
+            commandwindow;
+            reply = input([tempTS.Name ' - z/h/i/za/ha/ia [z]:'],'s');
+            % any other input default to zero
+            if (isempty(reply) ||...
+                ~any(contains({'z','h','i','za','ha','ia'}, reply, 'IgnoreCase',true)))
+                reply = 'z';
+            end
+            % use same option for rest of the signals
+            if length(reply)>1
+                promptinput = false;
+            end
+        end
+        
+        % signal processing
+        [~, idx]  = intersect(commonTime, tempTS.Time, 'stable');
+        newData = zeros(size(commonTime));
+        if strcmpi(reply(1),'z')
+            % fill missing values with zeros
+            newData(idx) = tempTS.Data;
+            if ~promptinput
+                fprintf([tempTS.Name ': zero fill\n']);
+            end
+            
+        elseif strcmpi(reply(1),'h')
+            % hold last samples
+            newData(idx) = tempTS.Data - [0;tempTS.Data(1:end-1)];
+            newData = cumsum(newData);
+            if ~promptinput
+                fprintf([tempTS.Name ': hold last value\n']);
+            end
+            
+        elseif strcmpi(reply(1),'i')
+            % interpolate missing values
+            if (tempTS.TimeInfo.Length > 2)
+                newData = interp1(tempTS.Time, tempTS.Data, commonTime, 'linear','extrap');
+                if ~promptinput
+                    fprintf([tempTS.Name ': interpolate in between\n']);
+                end
+            else
+                fprintf('\n');
+                fprintf(['"' tempTS.Name '" - signal has less than 3 samples to interpolate, defaulting to zero fill\n']);
+                newData(idx) = tempTS.Data;
+            end
+
+        end
+        newTS = timeseries(newData, commonTime, 'name', tempTS.Name);
+        eval(['allSignals.' tempTS.Name ' =  newTS;']);
+
+    end
+end
+
+end
+
+function allSignals = UpdateSignalsList(allSignals, varSignal)
+% check vectors vs signal
+if (size(varSignal.Values.Data, 2) == 1) % only signal
+    % fix time to round off to 5 digits
+    varSignal.Values.Time = round(varSignal.Values.Time*1e5)/1e5;
+    eval(['allSignals.' varSignal.Name ' = varSignal.Values;']);
+else % vector
+    tempTS  = varSignal.Values;
+    % fix time to round off to 5 digits
+    tempTS.Time = round(tempTS.Time*1e5)/1e5;
+    for i = 1:size(varSignal.Values.Data, 2)
+        tempTS.Data = varSignal.Values.Data(:,i);
+        tempTS.Name = [varSignal.Values.Name '_signal' num2str(i)];
+        eval(['allSignals.' tempTS.Name ' = tempTS;']);
+    end
 end
 end
+
