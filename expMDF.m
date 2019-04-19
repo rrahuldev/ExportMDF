@@ -10,20 +10,14 @@
 
 function expMDF(dataTable, fileoutname)
 %%  create the fid to write
-% fileoutname = 'C:\2014\MATLAB\Matlab_scripts\Mat_to_Dat\test.dat';
 fid = fopen(fileoutname,'W');
 
-% NOTE: dump empty characters 
-% otherwise fseek wont move to desired position to write to
-fwrite(fid, repmat(char(0),1,200000), 'char');
-
 %%  pass the table data
-% load('table_data.mat');
-varNames = dataTable.Properties.VariableNames;
+varNames = getVariableNames(dataTable);
 varUnits = getTableUnits(dataTable);
 numChannels = length(varNames);
 numSamples = height(dataTable);
-rateSample = dataTable.time(2) - dataTable.time(1);
+rateSample = 0;  % required for virtual signal only. 
 
 %% Define locations for each block
 linkID = 0;                 % DO NOT CHANGE THIS
@@ -37,6 +31,10 @@ padd_cn = 2;
 linkCG = linkCN + numChannels*(blocksize_cn+padd_cn);
 linkDG = linkCG + 50;   % 26+padding
 linkDT = linkDG + 50;   %28 + padding
+
+% NOTE: dump empty characters untill linkDT otherwise fseek wont move to
+% desired position to write to
+fwrite(fid, repmat(char(0),1,linkDT), 'char');
 
 %% write ID block
 writeIDBlock(fid, linkID);
@@ -150,6 +148,17 @@ if lastVar
 end
 blocksize = 228;
 
+% calculate start offset with byte offset
+% if start bit is more than 16 bytes, use additional byte offset
+start_bit_raw = 32*(numVar-1);
+if (start_bit_raw <= 2^16-1)
+    start_offset = start_bit_raw;
+    add_byte_offset = 0;
+else
+    start_offset = mod(start_bit_raw, 8);
+    add_byte_offset = floor(start_bit_raw/8);
+end
+
 fseek(fid,offset,'bof');
 fwrite(fid,'CN','char');
 fwrite(fid,blocksize,'uint16');    %block size
@@ -167,7 +176,7 @@ fwrite(fid,signalName(1:min(length(signalName),31)), 'char');
 fseek(fid,32-length(signalName),0);     % fill the rest 32bytes with null 
 fwrite(fid,'simulink output data','char');
 fseek(fid,128-length('simulink output data'),0);     % fill the rest 128bytes with null 
-fwrite(fid,32*(numVar-1),'uint16');    %start offset
+fwrite(fid,start_offset,'uint16');    %start offset
 fwrite(fid,32,'uint16');    %num of bits
 fwrite(fid,2,'uint16');    % single format (4bytes)
 fwrite(fid,0,'uint16');    % value range valid
@@ -176,7 +185,7 @@ fwrite(fid,0,'double');    % max signal value
 fwrite(fid,rateSample,'double');    % sampling rate
 fwrite(fid,0,'uint32');     %skip TX block
 fwrite(fid,0,'uint32');     %skip TX block
-fwrite(fid,0,'uint16');     % additional byte offset    
+fwrite(fid,add_byte_offset,'uint16');     % additional byte offset    
 end
 
 %% CC block def
@@ -209,6 +218,46 @@ fseek(fid,offset,'bof');
 % end
 dataTableRow = reshape(dataTable{:,:}', 1, []);
 fwrite(fid,dataTableRow, 'single');
+end
+
+%% Fix variable names
+function varnames = getVariableNames(dataTable)
+% variable names should conform to 
+% 1 - no space allowed : replace with __
+% 2 - length should be less than 31 chars
+% 3 - unique name for each variables 
+varnames = dataTable.Properties.VariableNames;
+% check if space exists in names
+flg_spacenames = contains(varnames, ' ');
+% then replace with '_'
+if any(flg_spacenames)
+    spacenames = varnames(flg_spacenames);
+    spacenames = cellfun(@(x) strrep(x, ' ','_'), spacenames, 'UniformOutput', false);
+    varnames(flg_spacenames) = spacenames;
+end
+
+% check more than 31 chars names
+flg_longnames = cellfun(@(x) length(x)>31, varnames, 'UniformOutput', false);
+flg_longnames = [flg_longnames{:}]';  % convert cell to logical array
+% then truncate in between; use rolling 31 chars that produce unique names
+if any(flg_longnames)
+    newvarnames = varnames;
+    longnames = varnames(flg_longnames);
+    shift_idx=[0:1:14 -1:-1:-14];
+    i=1;
+    while ((length(unique(newvarnames)) ~= length(newvarnames) || i==1) && i<= length(shift_idx))
+        idx = shift_idx(i);
+        newlongnames = cellfun(@(x) [x(1:15-idx) '_' x(end-14-idx:end)], longnames, 'UniformOutput', false);
+        newvarnames(flg_longnames) = newlongnames;
+        i=i+1;
+    end
+    if (length(unique(newvarnames)) ~= length(newvarnames) && i > length(shift_idx))
+        error('Try to minimize the signal names to less than 31 chars');
+    else
+        varnames = newvarnames;
+    end    
+end
+
 end
 
 %% DataTable units
