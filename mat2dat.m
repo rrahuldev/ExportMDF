@@ -212,7 +212,7 @@ for i=1:length(signalNames)
             reply = input([tempTS.Name ' - z/h/i/za/ha/ia [z]:'],'s');
             % any other input default to zero
             if (isempty(reply) ||...
-                ~any(contains({'z','h','i','za','ha','ia'}, reply, 'IgnoreCase',true)))
+                isempty(cell2mat(strfind({'z','h','i','za','ha','ia'}, lower(reply)))))
                 reply = 'z';
             end
             % use same option for rest of the signals

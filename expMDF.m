@@ -227,14 +227,9 @@ function varnames = getVariableNames(dataTable)
 % 2 - length should be less than 31 chars
 % 3 - unique name for each variables 
 varnames = dataTable.Properties.VariableNames;
+
 % check if space exists in names
-flg_spacenames = contains(varnames, ' ');
-% then replace with '_'
-if any(flg_spacenames)
-    spacenames = varnames(flg_spacenames);
-    spacenames = cellfun(@(x) strrep(x, ' ','_'), spacenames, 'UniformOutput', false);
-    varnames(flg_spacenames) = spacenames;
-end
+varnames = strrep(varnames, ' ','_');
 
 % check more than 31 chars names
 flg_longnames = cellfun(@(x) length(x)>31, varnames, 'UniformOutput', false);
