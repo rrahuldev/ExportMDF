@@ -253,6 +253,10 @@ if any(flg_longnames)
     end    
 end
 
+% convert ls/rs to brackets
+varnames = strrep(varnames, '_ls_','[');
+varnames = strrep(varnames, '_rs_',']');
+
 end
 
 %% DataTable units

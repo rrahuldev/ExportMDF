@@ -273,7 +273,7 @@ else % vector
     tempTS.Time = round(tempTS.Time*1e5)/1e5;
     for i = 1:size(varSignal.Values.Data, 2)
         tempTS.Data = varSignal.Values.Data(:,i);
-        tempTS.Name = [varSignal.Values.Name '_signal' num2str(i)];
+        tempTS.Name = [varSignal.Values.Name '_ls_' num2str(i-1) '_rs_'];
         eval(['allSignals.' tempTS.Name ' = tempTS;']);
     end
 end

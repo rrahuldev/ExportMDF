@@ -3,3 +3,5 @@
 *.prj
 unittest.m
 *.mdl
+sampleData**
+pushUpdates.sh
